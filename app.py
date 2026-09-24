@@ -1,7 +1,6 @@
 import hmac
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.graph_objects as go
 
 st.set_page_config(
@@ -122,6 +121,15 @@ def cargar_datos(archivo):
         ]
     )
 
+    # Usar horario local para que los meses correspondan al calendario de México.
+    if datos["FechaHora_objetivo"].dt.tz is not None:
+        datos["FechaHora_local"] = (
+            datos["FechaHora_objetivo"]
+            .dt.tz_convert("America/Mexico_City")
+        )
+    else:
+        datos["FechaHora_local"] = datos["FechaHora_objetivo"]
+
     return datos
 
 
@@ -180,7 +188,7 @@ datos_horizonte = datos_mercado[
 ].copy()
 
 datos_horizonte = datos_horizonte.sort_values(
-    "FechaHora_objetivo"
+    "FechaHora_local"
 )
 
 
@@ -208,24 +216,13 @@ porcentaje_dentro = (
     * 100
 )
 
-mae = np.mean(
-    np.abs(
-        datos_horizonte["valor_real"]
-        - datos_horizonte["Q50"]
-    )
-)
-
-rmse = np.sqrt(
-    np.mean(
-        (
-            datos_horizonte["valor_real"]
-            - datos_horizonte["Q50"]
-        ) ** 2
-    )
-)
+error_promedio = (
+    datos_horizonte["valor_real"]
+    - datos_horizonte["Q50"]
+).abs().mean()
 
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3 = st.columns(3)
 
 col1.metric(
     "Horas dentro del rango",
@@ -233,84 +230,54 @@ col1.metric(
 )
 
 col2.metric(
-    "Cobertura Q10–Q90",
+    "Porcentaje capturado",
     f"{porcentaje_dentro:.1f}%"
 )
 
 col3.metric(
-    "MAE",
-    f"${mae:,.2f}/MWh"
-)
-
-col4.metric(
-    "RMSE",
-    f"${rmse:,.2f}/MWh"
+    "Error promedio de predicción",
+    f"${error_promedio:,.2f}/MWh"
 )
 
 
 # ─────────────────────────────
-# Selector de fechas para la gráfica
+# Selector mensual
 # ─────────────────────────────
-fecha_min = (
-    datos_horizonte["FechaHora_objetivo"]
-    .min()
-    .date()
-)
-
-fecha_max = (
-    datos_horizonte["FechaHora_objetivo"]
-    .max()
-    .date()
-)
-
-
 st.subheader(
     "Evolución temporal"
 )
 
-periodo = st.date_input(
-    "Periodo mostrado en la gráfica",
-    value=(fecha_min, fecha_max),
-    min_value=fecha_min,
-    max_value=fecha_max
+meses = {
+    "Año completo": None,
+    "Enero": 1,
+    "Febrero": 2,
+    "Marzo": 3,
+    "Abril": 4,
+    "Mayo": 5,
+    "Junio": 6,
+    "Julio": 7,
+    "Agosto": 8,
+    "Septiembre": 9,
+    "Octubre": 10,
+    "Noviembre": 11,
+    "Diciembre": 12
+}
+
+periodo = st.selectbox(
+    "Periodo mostrado",
+    list(meses.keys()),
+    index=0
 )
 
+mes_seleccionado = meses[periodo]
 
-if isinstance(periodo, tuple) and len(periodo) == 2:
-
-    fecha_inicio = pd.Timestamp(
-        periodo[0]
-    )
-
-    fecha_fin = (
-        pd.Timestamp(periodo[1])
-        + pd.Timedelta(days=1)
-    )
-
+if mes_seleccionado is None:
+    datos_grafica = datos_horizonte.copy()
 else:
-    fecha_inicio = pd.Timestamp(
-        fecha_min
-    )
-
-    fecha_fin = (
-        pd.Timestamp(fecha_max)
-        + pd.Timedelta(days=1)
-    )
-
-
-# Quitar zona horaria para comparar si fuera necesario
-fechas_comparacion = (
-    datos_horizonte["FechaHora_objetivo"]
-    .dt.tz_localize(None)
-    if datos_horizonte["FechaHora_objetivo"].dt.tz is not None
-    else datos_horizonte["FechaHora_objetivo"]
-)
-
-
-datos_grafica = datos_horizonte[
-    (fechas_comparacion >= fecha_inicio)
-    & (fechas_comparacion < fecha_fin)
-].copy()
+    datos_grafica = datos_horizonte[
+        datos_horizonte["FechaHora_local"].dt.month
+        == mes_seleccionado
+    ].copy()
 
 
 if datos_grafica.empty:
@@ -329,7 +296,7 @@ fig = go.Figure()
 # Límite superior Q90
 fig.add_trace(
     go.Scatter(
-        x=datos_grafica["FechaHora_objetivo"],
+        x=datos_grafica["FechaHora_local"],
         y=datos_grafica["Q90"],
         mode="lines",
         line=dict(width=0),
@@ -345,13 +312,13 @@ fig.add_trace(
 # Límite inferior Q10 + sombreado
 fig.add_trace(
     go.Scatter(
-        x=datos_grafica["FechaHora_objetivo"],
+        x=datos_grafica["FechaHora_local"],
         y=datos_grafica["Q10"],
         mode="lines",
         line=dict(width=0),
         fill="tonexty",
-        fillcolor="rgba(31, 119, 180, 0.20)",
-        name="Rango Q10–Q90",
+        fillcolor="rgba(99, 110, 250, 0.22)",
+        name="Rango de predicción Q10–Q90",
         hovertemplate=(
             "Q10: $%{y:,.2f}/MWh"
             "<extra></extra>"
@@ -363,16 +330,16 @@ fig.add_trace(
 # Predicción central Q50
 fig.add_trace(
     go.Scatter(
-        x=datos_grafica["FechaHora_objetivo"],
+        x=datos_grafica["FechaHora_local"],
         y=datos_grafica["Q50"],
         mode="lines",
-        name="Predicción Q50",
+        name="Predicción central",
         line=dict(
-            color="#ff7f0e",
-            width=1.5
+            color="#FFA15A",
+            width=1.8
         ),
         hovertemplate=(
-            "Q50: $%{y:,.2f}/MWh"
+            "Predicción: $%{y:,.2f}/MWh"
             "<extra></extra>"
         )
     )
@@ -382,13 +349,13 @@ fig.add_trace(
 # Precio real
 fig.add_trace(
     go.Scatter(
-        x=datos_grafica["FechaHora_objetivo"],
+        x=datos_grafica["FechaHora_local"],
         y=datos_grafica["valor_real"],
         mode="lines",
         name="Precio real",
         line=dict(
-            color="black",
-            width=1.5
+            color="#636EFA",
+            width=1.8
         ),
         hovertemplate=(
             "Real: $%{y:,.2f}/MWh"
@@ -398,7 +365,7 @@ fig.add_trace(
 )
 
 
-# Puntos que quedaron FUERA del intervalo
+# Puntos que quedaron fuera del intervalo
 fuera = datos_grafica[
     ~datos_grafica["dentro_del_rango"]
 ]
@@ -406,12 +373,12 @@ fuera = datos_grafica[
 
 fig.add_trace(
     go.Scatter(
-        x=fuera["FechaHora_objetivo"],
+        x=fuera["FechaHora_local"],
         y=fuera["valor_real"],
         mode="markers",
         name="Fuera del rango",
         marker=dict(
-            color="red",
+            color="#EF553B",
             size=5
         ),
         hovertemplate=(
@@ -426,7 +393,8 @@ fig.add_trace(
 fig.update_layout(
     title=(
         f"{mercado} — "
-        f"{tiempo:g} horas de anticipación"
+        f"{tiempo:g} horas de anticipación — "
+        f"{periodo}"
     ),
     xaxis_title="Fecha",
     yaxis_title="Precio ($/MWh)",
@@ -460,9 +428,9 @@ cobertura_periodo = (
 
 
 st.caption(
-    f"En el periodo mostrado, "
+    f"En {periodo.lower()}, "
     f"{horas_dentro_periodo:,} de {horas_periodo:,} horas "
-    f"({cobertura_periodo:.1f}%) quedaron dentro de Q10–Q90."
+    f"({cobertura_periodo:.1f}%) quedaron dentro del rango previsto."
 )
 
 
@@ -475,7 +443,7 @@ st.subheader(
 
 tabla = datos_grafica[
     [
-        "FechaHora_objetivo",
+        "FechaHora_local",
         "valor_real",
         "Q10",
         "Q50",
@@ -487,8 +455,9 @@ tabla = datos_grafica[
 
 tabla = tabla.rename(
     columns={
-        "FechaHora_objetivo": "Fecha objetivo",
+        "FechaHora_local": "Fecha objetivo",
         "valor_real": "Precio real",
+        "Q50": "Predicción central",
         "dentro_del_rango": "Dentro del rango"
     }
 )
