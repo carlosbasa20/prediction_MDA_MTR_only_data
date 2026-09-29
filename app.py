@@ -221,8 +221,13 @@ error_promedio = (
     - datos_horizonte["Q50"]
 ).abs().mean()
 
+ancho_promedio_total = (
+    datos_horizonte["Q90"] 
+    - datos_horizonte["Q10"]
+).mean()
 
-col1, col2, col3 = st.columns(3)
+
+col1, col2, col3, col4 = st.columns(4)
 
 col1.metric(
     "Horas dentro del rango",
@@ -237,6 +242,11 @@ col2.metric(
 col3.metric(
     "Error promedio de predicción",
     f"${error_promedio:,.2f}/MWh"
+)
+
+col4.metric(
+    "Ancho promedio del rango",
+    f"${ancho_promedio_total:,.2f}/MWh"
 )
 
 
@@ -426,11 +436,17 @@ cobertura_periodo = (
     * 100
 )
 
+ancho_promedio_periodo = (
+    datos_grafica["Q90"] 
+    - datos_grafica["Q10"]
+).mean()
+
 
 st.caption(
     f"En {periodo.lower()}, "
     f"{horas_dentro_periodo:,} de {horas_periodo:,} horas "
-    f"({cobertura_periodo:.1f}%) quedaron dentro del rango previsto."
+    f"({cobertura_periodo:.1f}%) quedaron dentro del rango previsto. "
+    f"El ancho promedio del rango para este periodo fue de **${ancho_promedio_periodo:,.2f}/MWh**."
 )
 
 
